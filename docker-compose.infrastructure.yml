@@ -1,0 +1,186 @@
+name: gtlabs-infrastructure
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gtlabs-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in your env file}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in your env file}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in your env file}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gtlabs
+
+  redis:
+    image: redis:7-alpine
+    container_name: gtlabs-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gtlabs
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: gtlabs-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER in your env file}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD in your env file}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gtlabs
+
+  consul:
+    image: hashicorp/consul:1.20
+    container_name: gtlabs-consul
+    restart: unless-stopped
+    command: agent -server -bootstrap-expect=1 -client=0.0.0.0 -ui -data-dir=/consul/data
+    ports:
+      - "${CONSUL_HTTP_PORT:-8500}:8500"
+      - "${CONSUL_DNS_PORT:-8600}:8600/udp"
+    volumes:
+      - consul-data:/consul/data
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gtlabs
+
+  consul-kv-init:
+    image: curlimages/curl:8.11.1
+    container_name: gtlabs-consul-kv-init
+    depends_on:
+      consul:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/general.json <<EOF
+        {
+          "GATEWAY_URL": "${GATEWAY_URL:?Set GATEWAY_URL in your env file}",
+          "ServiceToken": "${SERVICE_TOKEN:?Set SERVICE_TOKEN in your env file}",
+          "ConnectionStrings": {
+            "DefaultConnection": "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+          },
+          "Redis": {
+            "Connection": "redis:6379",
+            "DefaultDb": 0
+          },
+          "ServiceBus": {
+            "ConnectionString": "amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672"
+          },
+          "Jwt": {
+            "Issuer": "${JWT_ISSUER:?Set JWT_ISSUER in your env file}",
+            "Audience": "${JWT_AUDIENCE:?Set JWT_AUDIENCE in your env file}",
+            "SecretKey": "${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in your env file}"
+          },
+          "Seq": {
+            "Url": "${SEQ_URL:?Set SEQ_URL in your env file}"
+          },
+          "OpenTelemetry": {
+            "OtlpEndpoint": "${OTEL_OTLP_ENDPOINT:?Set OTEL_OTLP_ENDPOINT in your env file}",
+            "ExportToOtlp": true
+          }
+        }
+        EOF
+        curl --fail --request PUT --data-binary @/tmp/general.json http://consul:8500/v1/kv/General/base
+    restart: "no"
+    networks:
+      - gtlabs
+
+  fabio:
+    image: fabiolb/fabio:1.6.4
+    container_name: gtlabs-fabio
+    restart: unless-stopped
+    command: -registry.consul.addr=consul:8500
+    depends_on:
+      consul:
+        condition: service_healthy
+    ports:
+      - "${FABIO_HTTP_PORT:-9999}:9999"
+      - "${FABIO_UI_PORT:-9998}:9998"
+    networks:
+      - gtlabs
+
+  seq:
+    image: datalust/seq:2024.3
+    container_name: gtlabs-seq
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: Y
+    ports:
+      - "${SEQ_PORT:-5341}:80"
+    volumes:
+      - seq-data:/data
+    networks:
+      - gtlabs
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    container_name: gtlabs-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${JAEGER_UI_PORT:-16686}:16686"
+    networks:
+      - gtlabs
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    container_name: gtlabs-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yml"]
+    depends_on:
+      - jaeger
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_HTTP_PORT:-4318}:4318"
+      - "${OTEL_METRICS_PORT:-8889}:8889"
+    volumes:
+      - ./otel-collector.config.yml:/etc/otelcol-contrib/config.yml:ro
+    networks:
+      - gtlabs
+
+networks:
+  gtlabs:
+    name: gtlabs
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  consul-data:
+  seq-data:
