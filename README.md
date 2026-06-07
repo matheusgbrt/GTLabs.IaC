@@ -54,7 +54,9 @@ The stack writes shared service configuration to:
 General/base
 ```
 
-This includes Redis, RabbitMQ, PostgreSQL, JWT, Seq, OpenTelemetry, service token, and gateway URL configuration.
+This includes only app-neutral configuration: Redis, RabbitMQ, JWT validation, Seq, OpenTelemetry, and gateway URL configuration.
+
+Per-service configuration must be written separately under each service `AppId`, for example `<AppId>/base`. This infrastructure stack does not create service-specific K/V entries.
 
 ## Microservice Environment
 

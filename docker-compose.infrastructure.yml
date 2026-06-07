@@ -90,10 +90,6 @@ services:
         cat > /tmp/general.json <<EOF
         {
           "GATEWAY_URL": "${GATEWAY_URL:?Set GATEWAY_URL in your env file}",
-          "ServiceToken": "${SERVICE_TOKEN:?Set SERVICE_TOKEN in your env file}",
-          "ConnectionStrings": {
-            "DefaultConnection": "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-          },
           "Redis": {
             "Connection": "redis:6379",
             "DefaultDb": 0
