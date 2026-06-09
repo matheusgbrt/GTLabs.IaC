@@ -51,7 +51,7 @@ docker compose --env-file .env.infrastructure -f docker-compose.infrastructure.y
 The stack writes shared service configuration to:
 
 ```text
-General/base
+General
 ```
 
 This includes only app-neutral configuration: Redis, RabbitMQ, JWT validation, Seq, OpenTelemetry, and gateway URL configuration.

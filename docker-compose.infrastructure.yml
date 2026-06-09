@@ -21,6 +21,23 @@ services:
     networks:
       - gtlabs
 
+  pgadmin:
+    image: dpage/pgadmin:9.2
+    container_name: gtlabs-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:?Set PGADMIN_EMAIL in your env file}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:?Set PGADMIN_PASSWORD in your env file}
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - gtlabs
+
   redis:
     image: redis:7-alpine
     container_name: gtlabs-redis
@@ -111,7 +128,7 @@ services:
           }
         }
         EOF
-        curl --fail --request PUT --data-binary @/tmp/general.json http://consul:8500/v1/kv/General/base
+        curl --fail --request PUT --data-binary @/tmp/general.json http://consul:8500/v1/kv/General
     restart: "no"
     networks:
       - gtlabs
@@ -180,3 +197,4 @@ volumes:
   rabbitmq-data:
   consul-data:
   seq-data:
+  pgadmin-data:
