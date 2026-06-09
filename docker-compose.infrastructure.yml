@@ -22,7 +22,7 @@ services:
       - gtlabs
 
   pgadmin:
-    image: dpage/pgadmin:9.2
+    image: dpage/pgadmin4:8.14
     container_name: gtlabs-pgadmin
     restart: unless-stopped
     environment:

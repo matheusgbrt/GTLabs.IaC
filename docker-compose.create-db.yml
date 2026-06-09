@@ -1,0 +1,68 @@
+name: gtlabs-create-db
+
+services:
+  create-db:
+    image: postgres:16-alpine
+    container_name: gtlabs-create-db
+    environment:
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGHOST: postgres
+      APP_ID: ${APP_ID:?Set APP_ID in your .env file}
+    command:
+      - sh
+      - -c
+      - |
+        DB_NAME=$(echo "$${APP_ID}" | tr '-' '_')
+        until pg_isready -q; do
+          echo "Waiting for postgres..."
+          sleep 1
+        done
+        echo "Creating database $${DB_NAME}..."
+        psql -tc "SELECT 1 FROM pg_database WHERE datname = '$${DB_NAME}'" | grep -q 1 \
+          && echo "Database $${DB_NAME} already exists" \
+          || createdb "$${DB_NAME}"
+    networks:
+      - gtlabs
+    restart: "no"
+
+  consul-kv-init:
+    image: curlimages/curl:8.11.1
+    container_name: gtlabs-consul-kv-init
+    depends_on:
+      create-db:
+        condition: service_completed_successfully
+    environment:
+      APP_ID: ${APP_ID:?Set APP_ID in your .env file}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command:
+      - sh
+      - -c
+      - |
+        DB_NAME=$(echo "$${APP_ID}" | tr '-' '_')
+        ROUTE_PREFIX="urlprefix-/$${ROUTE_PREFIX}"
+        CONN_STRING="Host=postgres;Port=5432;Database=$${DB_NAME};Username=$${POSTGRES_USER};Password=$${POSTGRES_PASSWORD}"
+        until curl -sf http://consul:8500/v1/status/leader > /dev/null 2>&1; do
+          echo "Waiting for consul..."
+          sleep 2
+        done
+        echo "Writing Consul KV for $${APP_ID}..."
+        curl --fail --request PUT \
+          --data-binary @- \
+          "http://consul:8500/v1/kv/$${APP_ID}" <<EOF
+        {
+          "RoutePrefix": "$${ROUTE_PREFIX}",
+          "ServiceToken": "$${APP_ID}",
+          "ConnectionStrings": {
+            "DefaultConnection": "$${CONN_STRING}"
+          }
+        }
+        EOF
+    networks:
+      - gtlabs
+    restart: "no"
+
+networks:
+  gtlabs:
+    external: true
