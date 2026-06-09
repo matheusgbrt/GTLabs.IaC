@@ -22,13 +22,17 @@ services:
         psql -tc "SELECT 1 FROM pg_database WHERE datname = '$${DB_NAME}'" | grep -q 1 \
           && echo "Database $${DB_NAME} already exists" \
           || createdb "$${DB_NAME}"
+        echo "Creating gtlabs schema..."
+        psql -d "$${DB_NAME}" -tc "SELECT 1 FROM information_schema.schemata WHERE schema_name = 'gtlabs'" | grep -q 1 \
+          && echo "Schema gtlabs already exists" \
+          || psql -d "$${DB_NAME}" -c "CREATE SCHEMA gtlabs"
     networks:
       - gtlabs
     restart: "no"
 
   consul-kv-init:
     image: curlimages/curl:8.11.1
-    container_name: gtlabs-consul-kv-init
+    container_name: gtlabs-consul-kv-init-service
     depends_on:
       create-db:
         condition: service_completed_successfully
@@ -41,8 +45,8 @@ services:
       - -c
       - |
         DB_NAME=$(echo "$${APP_ID}" | tr '-' '_')
-        ROUTE_PREFIX="urlprefix-/$${ROUTE_PREFIX}"
-        CONN_STRING="Host=postgres;Port=5432;Database=$${DB_NAME};Username=$${POSTGRES_USER};Password=$${POSTGRES_PASSWORD}"
+        ROUTE_PREFIX="urlprefix-/$${ROUTE}"
+        CONN_STRING="Host=postgres;Port=5432;Database=$${DB_NAME};Username=$${POSTGRES_USER};Password=$${POSTGRES_PASSWORD};SearchPath=gtlabs"
         until curl -sf http://consul:8500/v1/status/leader > /dev/null 2>&1; do
           echo "Waiting for consul..."
           sleep 2
@@ -52,7 +56,7 @@ services:
           --data-binary @- \
           "http://consul:8500/v1/kv/$${APP_ID}" <<EOF
         {
-          "RoutePrefix": "$${ROUTE_PREFIX}",
+          "RoutePrefix": "$${ROUTE}",
           "ServiceToken": "$${APP_ID}",
           "ConnectionStrings": {
             "DefaultConnection": "$${CONN_STRING}"
